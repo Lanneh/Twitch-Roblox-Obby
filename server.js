@@ -1,4 +1,4 @@
-	// server.js
+// server.js
 import express from "express";
 import tmi from "tmi.js";
 
@@ -11,62 +11,68 @@ const PORT = process.env.PORT || 3000;
 const activeServers = {}; // { serverId: { client, messages: [] } }
 
 // Register a Twitch username for a Roblox server
-	app.post("/register", async (req, res) => {
-		const { username, serverId } = req.body;
-		if (!username || !serverId) {
-			return res.status(400).json({ error: "Missing username or serverId" });
-			}
+app.post("/register", async (req, res) => {
+    const { username, serverId } = req.body;
 
-			// Already registered? Just return success.
-				if (activeServers[serverId]) {
-					return res.json({ status: "already_registered" });
-					}
+    if (!username || !serverId) {
+        return res.status(400).json({ error: "Missing username or serverId" });
+    }
 
-					console.log(`Registering Twitch channel: ${username} for server ${serverId}`);
+    // Already registered? Just return success.
+    if (activeServers[serverId]) {
+        return res.json({ status: "already_registered" });
+    }
 
-					// Setup Twitch chat client
-					const client = new tmi.Client({
-						channels: [username.toLowerCase()]
-					});
+    console.log(`Registering Twitch channel: ${username} for server ${serverId}`);
 
-					await client.connect();
+    // Setup Twitch chat client
+    const client = new tmi.Client({
+        channels: [username.toLowerCase()]
+    });
 
-					activeServers[serverId] = {
-						client,
-						messages: []
-					};
+    await client.connect();
 
-					client.on("message", (channel, tags, message, self) => {
-						activeServers[serverId].messages.push({
-							user: tags["display-name"],
-							text: message,
-							timestamp: Date.now()
-						});
-					});
+    activeServers[serverId] = {
+        client,
+        messages: []
+    };
 
-					res.json({ status: "ok" });
-	});
+    client.on("message", (channel, tags, message, self) => {
+        activeServers[serverId].messages.push({
+            user: tags["display-name"],
+            text: message,
+            timestamp: Date.now()
+        });
+    });
 
-	// Roblox polls for messages
-		app.get("/getMessages", (req, res) => {
-			const { serverId } = req.query;
-			if (!serverId || !activeServers[serverId]) {
-				return res.json([]); // No messages
-				}
+    res.json({ status: "ok" });
+});
 
-				const data = activeServers[serverId].messages;
-				activeServers[serverId].messages = []; // clear after sending
-				res.json(data);
-		});
+// Roblox polls for messages
+app.get("/getMessages", (req, res) => {
+    const { serverId } = req.query;
 
-		// Clean up old connections if needed
-			app.delete("/unregister", async (req, res) => {
-				const { serverId } = req.body;
-				if (activeServers[serverId]) {
-					await activeServers[serverId].client.disconnect();
-					delete activeServers[serverId];
-					}
-					res.json({ status: "removed" });
-			});
+    if (!serverId || !activeServers[serverId]) {
+        return res.json([]); // No messages
+    }
 
-			app.listen(PORT, () => console.log(`Twitch relay running on port ${PORT}`));
+    const data = activeServers[serverId].messages;
+    activeServers[serverId].messages = []; // Clear after sending
+    res.json(data);
+});
+
+// Clean up old connections if needed
+app.delete("/unregister", async (req, res) => {
+    const { serverId } = req.body;
+
+    if (activeServers[serverId]) {
+        await activeServers[serverId].client.disconnect();
+        delete activeServers[serverId];
+    }
+
+    res.json({ status: "removed" });
+});
+
+app.listen(PORT, () => {
+    console.log(`Twitch relay running on port ${PORT}`);
+});
