@@ -69,25 +69,63 @@ async function connectTwitch(username, serverId) {
     throw new Error(`Unable to connect Twitch client for ${username}`);
 }
 
-// --- 🧩 Register route
+// --- 🧩 Register or Override route
 app.post("/register", async (req, res) => {
     const { username, serverId } = req.body;
     if (!username || !serverId)
         return res.status(400).json({ error: "Missing username or serverId" });
-
-    if (activeServers[serverId])
-        return res.json({ status: "already_registered" });
 
     const valid = await validateTwitchChannel(username);
     if (!valid)
         return res.status(400).json({ error: "Invalid or suspended Twitch channel." });
 
     try {
+        // --- If already registered, cleanly disconnect and override
+        if (activeServers[serverId]) {
+            console.log(`[Twitch] Overriding existing connection for server ${serverId}`);
+            try {
+                await activeServers[serverId].client.disconnect();
+            } catch (e) {
+                console.warn(`[Twitch] Failed to cleanly disconnect old client:`, e);
+            }
+            delete activeServers[serverId];
+        }
+
+        // --- Connect to Twitch and store
         const client = await connectTwitch(username, serverId);
-        activeServers[serverId] = { client, messages: [] };
-        res.json({ status: "ok" });
+        activeServers[serverId] = { client, messages: [], username };
+        res.json({ status: "ok", overridden: true });
     } catch (err) {
         console.error(`Error registering server ${serverId}:`, err);
         res.status(500).json({ error: "Failed to connect to Twitch" });
     }
 });
+
+// --- 📬 Get messages for a server
+app.get("/getMessages", (req, res) => {
+    const { serverId } = req.query;
+    if (!serverId || !activeServers[serverId])
+        return res.json([]);
+
+    const messages = activeServers[serverId].messages.splice(0); // return and clear
+    res.json(messages);
+});
+
+// --- ❌ Unregister a server
+app.post("/unregister", async (req, res) => {
+    const { serverId } = req.body;
+    if (!serverId || !activeServers[serverId])
+        return res.json({ status: "not_found" });
+
+    try {
+        await activeServers[serverId].client.disconnect();
+        delete activeServers[serverId];
+        console.log(`[Twitch] Unregistered server ${serverId}`);
+        res.json({ status: "ok" });
+    } catch (err) {
+        console.error(`[Twitch] Error unregistering ${serverId}:`, err);
+        res.status(500).json({ error: "Failed to unregister" });
+    }
+});
+
+app.listen(PORT, () => console.log(`Twitch relay backend running on port ${PORT}`));
